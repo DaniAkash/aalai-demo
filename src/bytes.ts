@@ -7,5 +7,6 @@ export const formatBytes = (bytes: number): string => {
     value = value / 1024
     unit = unit + 1
   }
-  return `${value} ${units[unit]}`
+  const roundedValue = Math.round(value * 10) / 10
+  return `${roundedValue} ${units[unit]}`
 }
