@@ -1,7 +1,7 @@
-/** Clamps a number into the inclusive range [min, max]. */
+/** Clamps a number inclusively between two bounds, regardless of their order. */
 export const clamp = (value: number, min: number, max: number): number => {
-  if (value < min) {
-    return min
-  }
-  return value
+  const lower = Math.min(min, max)
+  const upper = Math.max(min, max)
+
+  return Math.min(Math.max(value, lower), upper)
 }
