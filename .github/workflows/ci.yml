@@ -1,0 +1,84 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Scoped to what the change touched, on purpose.
+  #
+  # This repository is a bank of unfixed bugs: every module has a test
+  # asserting the behaviour it should have, and ten of them fail on main and
+  # are meant to. Running the whole suite would therefore be red on every
+  # pull request no matter what the change did, which is not a signal, it is
+  # a constant. Scoping it means a change to one module is judged by that
+  # module's tests, so green means the change is right and red means it is
+  # not.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Work out which tests cover this change
+        id: scope
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          tests=""
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              test/*.test.ts) t="$f" ;;
+              src/*.ts) t="test/$(basename "$f" .ts).test.ts" ;;
+              *) continue ;;
+            esac
+            [ -f "$t" ] || continue
+            case " $tests " in *" $t "*) ;; *) tests="$tests $t" ;; esac
+          done <<< "$(git diff --name-only "$base" HEAD)"
+          echo "tests=${tests# }" >> "$GITHUB_OUTPUT"
+          echo "covering:${tests:-" nothing"}"
+
+      - name: Run them
+        run: |
+          if [ -z "${{ steps.scope.outputs.tests }}" ]; then
+            echo "no source or test files changed, nothing to run"
+            exit 0
+          fi
+          bun test ${{ steps.scope.outputs.tests }}
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  # Not a test of the code, and deliberately so.
+  #
+  # A switch for producing a failure that no change could have caused, which
+  # is the only way to check that something reading these results can tell
+  # "my change broke this" from "somebody else's problem". It is driven by a
+  # repository variable rather than by a commit, so turning it on and off
+  # does not move the head and therefore does not itself look like a new
+  # change to anything watching.
+  environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: A dependency this repository does not control
+        run: |
+          if [ "${{ vars.DEMO_FORCE_INFRA_FAILURE }}" = "true" ]; then
+            echo "::error::artifact registry unreachable after 3 attempts"
+            exit 1
+          fi
+          echo "reachable"
